@@ -61,6 +61,23 @@ function rowToObject(row) {
   };
 }
 
+function parseQuery(q) {
+  return {
+    date:        q.date       || "",
+    kcal:        Number(q.kcal        || 0),
+    kcal_target: Number(q.kcal_target || 0),
+    protein:     Number(q.protein     || 0),
+    carbs:       Number(q.carbs       || 0),
+    fat:         Number(q.fat         || 0),
+    trained:     q.trained === "true",
+    alcohol:     q.alcohol   || "No",
+    breakfast:   q.breakfast || "",
+    lunch:       q.lunch     || "",
+    dinner:      q.dinner    || "",
+    snacks:      q.snacks    || "",
+  };
+}
+
 async function saveToday(sheets, data) {
   const row = buildRow(data);
   const rows = await getRows(sheets, SHEET_TODAY);
@@ -114,6 +131,34 @@ module.exports = async (req, res) => {
   try {
     const sheets = await getSheets();
 
+    if (req.method === "GET") {
+      const { type, action } = req.query;
+
+      // Escritura via GET para Claude
+      if (action === "update") {
+        const data = parseQuery(req.query);
+        if (req.query.close === "true") {
+          await saveHistory(sheets, data);
+        }
+        await saveToday(sheets, data);
+        return res.status(200).json({ success: true, date: data.date });
+      }
+
+      if (!type || type === "today") {
+        const rows = await getRows(sheets, SHEET_TODAY);
+        if (rows.length > 1) return res.status(200).json(rowToObject(rows[1]));
+        return res.status(200).json({ error: "Sin datos hoy" });
+      }
+
+      if (type === "history") {
+        const rows = await getRows(sheets, SHEET_HISTORY);
+        const result = rows.slice(1).map(rowToObject);
+        return res.status(200).json(result);
+      }
+
+      return res.status(400).json({ error: "type invalido" });
+    }
+
     if (req.method === "POST") {
       const data = req.body;
       const type = data.type || "today";
@@ -126,22 +171,8 @@ module.exports = async (req, res) => {
       return res.status(200).json({ success: true, type, date: data.date });
     }
 
-    if (req.method === "GET") {
-      const type = req.query.type || "today";
-      if (type === "today") {
-        const rows = await getRows(sheets, SHEET_TODAY);
-        if (rows.length > 1) return res.status(200).json(rowToObject(rows[1]));
-        return res.status(200).json({ error: "Sin datos hoy" });
-      }
-      if (type === "history") {
-        const rows = await getRows(sheets, SHEET_HISTORY);
-        const data = rows.slice(1).map(rowToObject);
-        return res.status(200).json(data);
-      }
-      return res.status(400).json({ error: "type invalido" });
-    }
-
     return res.status(405).json({ error: "Method not allowed" });
+
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
